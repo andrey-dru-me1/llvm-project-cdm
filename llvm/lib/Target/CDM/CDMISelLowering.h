@@ -38,8 +38,7 @@ class CDMSubtarget;
 class CDMISelLowering: public TargetLowering {
 public:
   explicit CDMISelLowering(const CDMTargetMachine &TM, const CDMSubtarget &ST);
-  SDValue
-  LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+  SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
                        const SmallVectorImpl<ISD::InputArg> &Ins,
                        const SDLoc &DL, SelectionDAG &DAG,
                        SmallVectorImpl<SDValue> &InVals) const override;

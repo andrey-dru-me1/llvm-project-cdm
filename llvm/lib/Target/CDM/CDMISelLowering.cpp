@@ -3,47 +3,46 @@
 //
 
 #include "CDMISelLowering.h"
-#include "CDMTargetMachine.h"
 #include "CDMSubtarget.h"
+#include "CDMTargetMachine.h"
 
 using namespace llvm;
 
 CDMISelLowering::CDMISelLowering(const CDMTargetMachine &TM,
                                  const CDMSubtarget &ST)
-: TargetLowering(TM), Subtarget(ST){
-          addRegisterClass(MVT::i16, &CDM::CPURegsRegClass);
+    : TargetLowering(TM), Subtarget(ST) {
+  addRegisterClass(MVT::i16, &CDM::CPURegsRegClass);
 
-          computeRegisterProperties(Subtarget.getRegisterInfo());
+  computeRegisterProperties(Subtarget.getRegisterInfo());
 
-          setBooleanContents(ZeroOrOneBooleanContent);
+  setBooleanContents(ZeroOrOneBooleanContent);
 
-//          setOperationAction(ISD::BR_CC, MVT::i16, Expand);
+  //          setOperationAction(ISD::BR_CC, MVT::i16, Expand);
 
-//          setOperationAction(ISD::SELECT_CC, MVT::i16, Expand);
-          setOperationAction(ISD::SELECT, MVT::i16, Expand);
-          setOperationAction(ISD::SETCC, MVT::i16, Expand);
-//          setOperationAction(ISD::SELECT_CC, MVT::i16, Custom);
+  //          setOperationAction(ISD::SELECT_CC, MVT::i16, Expand);
+  setOperationAction(ISD::SELECT, MVT::i16, Expand);
+  setOperationAction(ISD::SETCC, MVT::i16, Expand);
+  //          setOperationAction(ISD::SELECT_CC, MVT::i16, Custom);
 
-          setOperationAction(ISD::GlobalAddress, MVT::i16, Custom);
+  setOperationAction(ISD::GlobalAddress, MVT::i16, Custom);
 
-          setOperationAction(ISD::BR_JT,             MVT::Other, Expand);
-          setOperationAction(ISD::JumpTable,          MVT::i16,   Custom);
-
+  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
+  setOperationAction(ISD::JumpTable, MVT::i16, Custom);
 }
 
 #include "CDMFunctionInfo.h"
 #include "CDMGenCallingConv.inc"
 
-
 // Mostly taken from llvm-leg
-SDValue CDMISelLowering::LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
-                                              const SmallVectorImpl<ISD::InputArg> &Ins,
-                                              const SDLoc &DL, SelectionDAG &DAG,
-                                              SmallVectorImpl<SDValue> &InVals) const {
+SDValue CDMISelLowering::LowerFormalArguments(
+    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
+    const SmallVectorImpl<ISD::InputArg> &Ins, const SDLoc &DL,
+    SelectionDAG &DAG, SmallVectorImpl<SDValue> &InVals) const {
   auto &MF = DAG.getMachineFunction();
   auto &MFI = MF.getFrameInfo();
   auto &RegInfo = MF.getRegInfo();
 
+  // TODO: add vararg support
   assert(!IsVarArg && "VarArg is not supported");
 
   // Assign locations to all of the incoming arguments.
@@ -53,12 +52,13 @@ SDValue CDMISelLowering::LowerFormalArguments(SDValue Chain, CallingConv::ID Cal
 
   CCInfo.AnalyzeFormalArguments(Ins, CC_CDM);
 
-
-  for(auto &VA: ArgLocs){
-    if(VA.isRegLoc()){
+  for (auto &VA : ArgLocs) {
+    if (VA.isRegLoc()) {
       EVT RegVT = VA.getLocVT();
-      assert(RegVT.getSimpleVT().SimpleTy == MVT::i16 && "Only support 16-bit register passing");
-      const unsigned VReg = RegInfo.createVirtualRegister(&CDM::CPURegsRegClass);
+      assert(RegVT.getSimpleVT().SimpleTy == MVT::i16 &&
+             "Only support 16-bit register passing");
+      const unsigned VReg =
+          RegInfo.createVirtualRegister(&CDM::CPURegsRegClass);
       RegInfo.addLiveIn(VA.getLocReg(), VReg);
       SDValue ArgIn = DAG.getCopyFromReg(Chain, DL, VReg, RegVT);
       InVals.push_back(ArgIn);
@@ -66,12 +66,25 @@ SDValue CDMISelLowering::LowerFormalArguments(SDValue Chain, CallingConv::ID Cal
       continue;
     }
 
-    llvm_unreachable("Arguments on stack are not supported yet");
-  }
+    EVT ValVT = VA.getValVT();
 
+    // sanity check
+    assert(VA.isMemLoc());
+
+    // The stack pointer offset is relative to the caller stack frame.
+    int FI = MFI.CreateFixedObject(ValVT.getSizeInBits() / 8,
+                                   VA.getLocMemOffset(), true);
+
+    // Create load nodes to retrieve arguments from the stack
+    InVals.push_back(
+        DAG.getLoad(VA.getValVT(), DL, Chain,
+                    DAG.getFrameIndex(FI, getPointerTy(MF.getDataLayout())),
+                    MachinePointerInfo::getFixedStack(MF, FI)));
+  }
 
   return Chain;
 }
+
 SDValue
 CDMISelLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                              bool IsVarArg,
@@ -82,16 +95,15 @@ CDMISelLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   MachineFunction &MF = DAG.getMachineFunction();
 
   // CCState - Info about the registers and stack slot.
-  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs,
-                 *DAG.getContext());
+  CCState CCInfo(CallConv, IsVarArg, MF, RVLocs, *DAG.getContext());
 
   // In example this loop is in Cpu0TargetLowering::Cpu0CC::analyzeReturn
   // Maybe I should do CCState::AllocateStack
-  for(unsigned I = 0, E = Outs.size(); I < E; ++I){
+  for (unsigned I = 0, E = Outs.size(); I < E; ++I) {
     MVT VT = Outs[I].VT;
     ISD::ArgFlagsTy Flags = Outs[I].Flags;
     MVT RegVT = MVT::i16;
-    if(RetCC_CDM(I, VT, RegVT, CCValAssign::Full, Flags, CCInfo)){
+    if (RetCC_CDM(I, VT, RegVT, CCValAssign::Full, Flags, CCInfo)) {
       dbgs() << "Call result #" << I << " has unhandled type "
              << EVT(VT).getEVTString() << '\n';
       llvm_unreachable("Oops");
@@ -125,22 +137,25 @@ CDMISelLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   // and into $v0.
   if (MF.getFunction().hasStructRetAttr()) {
     llvm_unreachable("No support for SRet yet, sorry");
-//    Cpu0FunctionInfo *Cpu0FI = MF.getInfo<Cpu0FunctionInfo>();
-//    unsigned Reg = Cpu0FI->getSRetReturnReg();
-//
-//    if (!Reg)
-//      llvm_unreachable("sret virtual register not created in the entry block");
-//    SDValue Val =
-//        DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy(DAG.getDataLayout()));
-//    unsigned V0 = Cpu0::V0;
-//
-//    Chain = DAG.getCopyToReg(Chain, DL, V0, Val, Flag);
-//    Flag = Chain.getValue(1);
-//    RetOps.push_back(DAG.getRegister(V0, getPointerTy(DAG.getDataLayout())));
+    //    Cpu0FunctionInfo *Cpu0FI = MF.getInfo<Cpu0FunctionInfo>();
+    //    unsigned Reg = Cpu0FI->getSRetReturnReg();
+    //
+    //    if (!Reg)
+    //      llvm_unreachable("sret virtual register not created in the entry
+    //      block");
+    //    SDValue Val =
+    //        DAG.getCopyFromReg(Chain, DL, Reg,
+    //        getPointerTy(DAG.getDataLayout()));
+    //    unsigned V0 = Cpu0::V0;
+    //
+    //    Chain = DAG.getCopyToReg(Chain, DL, V0, Val, Flag);
+    //    Flag = Chain.getValue(1);
+    //    RetOps.push_back(DAG.getRegister(V0,
+    //    getPointerTy(DAG.getDataLayout())));
   }
   //@Ordinary struct type: 2 }
 
-  RetOps[0] = Chain;  // Update chain.
+  RetOps[0] = Chain; // Update chain.
 
   // Add the flag if we have it.
   if (Flag.getNode())
@@ -150,25 +165,26 @@ CDMISelLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   return DAG.getNode(CDMISD::Ret, DL, MVT::Other, RetOps);
 }
 
-
-bool CDMISelLowering::CanLowerReturn(CallingConv::ID CallingConv, MachineFunction &MF, bool IsVarArg,
-                                     const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                     LLVMContext &Context) const {
+bool CDMISelLowering::CanLowerReturn(
+    CallingConv::ID CallingConv, MachineFunction &MF, bool IsVarArg,
+    const SmallVectorImpl<ISD::OutputArg> &Outs, LLVMContext &Context) const {
   SmallVector<CCValAssign, 16> RVLocs;
-  CCState CCInfo(CallingConv,IsVarArg, MF, RVLocs, Context);
+  CCState CCInfo(CallingConv, IsVarArg, MF, RVLocs, Context);
   return CCInfo.CheckReturn(Outs, RetCC_CDM);
 }
 
-#define NODE_NAME(x) case CDMISD::x: return "CDMISD::"#x
+#define NODE_NAME(x)                                                           \
+  case CDMISD::x:                                                              \
+    return "CDMISD::" #x
 const char *CDMISelLowering::getTargetNodeName(unsigned int Opcode) const {
   switch (Opcode) {
     NODE_NAME(Ret);
     NODE_NAME(Call);
     NODE_NAME(LOAD_SYM);
-    default: return NULL;
+  default:
+    return NULL;
   }
 }
-
 
 // Mostly taken from llvm-leg
 // TODO: use code from cpu0, not leg
@@ -203,7 +219,8 @@ SDValue CDMISelLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   unsigned NextStackOffset = CCInfo.getStackSize();
   unsigned StackAlignment = TFL->getStackAlignment();
   NextStackOffset = alignTo(NextStackOffset, StackAlignment);
-  SDValue NextStackOffsetVal = DAG.getIntPtrConstant(NextStackOffset, Loc, true);
+  SDValue NextStackOffsetVal =
+      DAG.getIntPtrConstant(NextStackOffset, Loc, true);
 
   Chain = DAG.getCALLSEQ_START(Chain, NextStackOffset, 0, Loc);
 
@@ -222,8 +239,12 @@ SDValue CDMISelLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       RegsToPass.push_back(std::make_pair(VA.getLocReg(), Arg));
       continue;
     }
-    llvm_unreachable("Stack operands are not supported yet");
 
+    int FI = MFI.CreateFixedObject(VA.getValVT().getSizeInBits() / 8,
+                                   VA.getLocMemOffset(), true);
+    SDValue PtrOff = DAG.getFrameIndex(FI, getPointerTy(MF.getDataLayout()));
+    MemOpChains.push_back(
+        DAG.getStore(Chain, CLI.DL, Arg, PtrOff, MachinePointerInfo()));
   }
 
   // Emit all stores, make sure they occur before the call.
@@ -242,15 +263,14 @@ SDValue CDMISelLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // We only support calling global addresses.
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
 
-  if(GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)){
+  if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
     Callee = DAG.getTargetGlobalAddress(G->getGlobal(), Loc, PtrVT, 0);
-  } else if(ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee)){
+  } else if (ExternalSymbolSDNode *S = dyn_cast<ExternalSymbolSDNode>(Callee)) {
     Callee = DAG.getTargetExternalSymbol(S->getSymbol(), PtrVT, 0);
-  } else{
-    llvm_unreachable("We only support the calling of global addresses and external symbols");
+  } else {
+    llvm_unreachable(
+        "We only support the calling of global addresses and external symbols");
   }
-
-
 
   std::vector<SDValue> Ops;
   Ops.push_back(Chain);
@@ -280,7 +300,8 @@ SDValue CDMISelLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   Chain = DAG.getNode(CDMISD::Call, Loc, NodeTys, Ops);
   InFlag = Chain.getValue(1);
 
-  Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(NextStackOffset, Loc, true),
+  Chain = DAG.getCALLSEQ_END(Chain,
+                             DAG.getIntPtrConstant(NextStackOffset, Loc, true),
                              DAG.getIntPtrConstant(0, Loc, true), InFlag, Loc);
   if (!Ins.empty()) {
     InFlag = Chain.getValue(1);
@@ -290,7 +311,6 @@ SDValue CDMISelLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // return.
   return LowerCallResult(Chain, InFlag, CallConv, IsVarArg, Ins, Loc, DAG,
                          InVals);
-
 }
 SDValue CDMISelLowering::LowerCallResult(
     SDValue Chain, SDValue InGlue, CallingConv::ID CallConv, bool isVarArg,
@@ -307,8 +327,9 @@ SDValue CDMISelLowering::LowerCallResult(
 
   // Copy all of the result registers out of their specified physreg.
   for (auto &Loc : RVLocs) {
-    Chain = DAG.getCopyFromReg(Chain, dl, Loc.getLocReg(), Loc.getValVT(),
-                               InGlue).getValue(1);
+    Chain =
+        DAG.getCopyFromReg(Chain, dl, Loc.getLocReg(), Loc.getValVT(), InGlue)
+            .getValue(1);
     InGlue = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }
@@ -317,16 +338,19 @@ SDValue CDMISelLowering::LowerCallResult(
 }
 SDValue CDMISelLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
-    case ISD::GlobalAddress: return lowerGlobalAddress(Op, DAG);
-    case ISD::JumpTable: return lowerJumpTable(Op, DAG);
-    }
+  case ISD::GlobalAddress:
+    return lowerGlobalAddress(Op, DAG);
+  case ISD::JumpTable:
+    return lowerJumpTable(Op, DAG);
+  }
   return SDValue();
 }
-SDValue CDMISelLowering::lowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const {
+SDValue CDMISelLowering::lowerGlobalAddress(SDValue Op,
+                                            SelectionDAG &DAG) const {
   EVT VT = Op.getValueType();
   GlobalAddressSDNode *GlobalAddr = cast<GlobalAddressSDNode>(Op.getNode());
-  SDValue TargetAddr =
-      DAG.getTargetGlobalAddress(GlobalAddr->getGlobal(), Op, MVT::i16, GlobalAddr->getOffset());
+  SDValue TargetAddr = DAG.getTargetGlobalAddress(
+      GlobalAddr->getGlobal(), Op, MVT::i16, GlobalAddr->getOffset());
   return DAG.getNode(CDMISD::LOAD_SYM, Op, VT, TargetAddr);
 }
 SDValue CDMISelLowering::lowerJumpTable(SDValue Op, SelectionDAG &DAG) const {
@@ -337,14 +361,17 @@ SDValue CDMISelLowering::lowerJumpTable(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(CDMISD::LOAD_SYM, Op, VT, TargetJumpTable);
 }
 
-// Thanks https://github.com/llvm/llvm-project/commit/65385167fbb4d30fcdddf54102b08fcb1b497fed
+// Thanks
+// https://github.com/llvm/llvm-project/commit/65385167fbb4d30fcdddf54102b08fcb1b497fed
 MachineBasicBlock *
 CDMISelLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
                                              MachineBasicBlock *MBB) const {
 
-  assert(MI.getOpcode() == CDM::PseudoSelectCC && "Unexpected instr type to insert");
+  assert(MI.getOpcode() == CDM::PseudoSelectCC &&
+         "Unexpected instr type to insert");
 
-  const CDMInstrInfo &TII = *(const CDMInstrInfo *)MBB->getParent()->getSubtarget().getInstrInfo();
+  const CDMInstrInfo &TII =
+      *(const CDMInstrInfo *)MBB->getParent()->getSubtarget().getInstrInfo();
   DebugLoc DL = MI.getDebugLoc();
 
   auto Dst = MI.getOperand(0);
@@ -367,17 +394,17 @@ CDMISelLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   F->insert(I, TailMBB);
 
   TailMBB->splice(TailMBB->begin(), HeadMBB,
-                   std::next(MachineBasicBlock::iterator(MI)), HeadMBB->end());
+                  std::next(MachineBasicBlock::iterator(MI)), HeadMBB->end());
 
   TailMBB->transferSuccessorsAndUpdatePHIs(HeadMBB);
   HeadMBB->addSuccessor(IfFalseMBB);
   HeadMBB->addSuccessor(TailMBB);
   IfFalseMBB->addSuccessor(TailMBB);
 
-  MachineInstr* CMPInst = BuildMI(HeadMBB, DL, TII.get(CDM::CMP))
-      .addReg(Lhs.getReg())
-      .addReg(Rhs.getReg())
-      .getInstr();
+  MachineInstr *CMPInst = BuildMI(HeadMBB, DL, TII.get(CDM::CMP))
+                              .addReg(Lhs.getReg())
+                              .addReg(Rhs.getReg())
+                              .getInstr();
 
   // TODO: check if glue needed
 
@@ -385,8 +412,7 @@ CDMISelLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
       .addImm(TII.CCToCondOp(CondCode))
       .addMBB(TailMBB);
 
-  BuildMI(*TailMBB, TailMBB->begin(), DL, TII.get(CDM::PHI),
-          Dst.getReg())
+  BuildMI(*TailMBB, TailMBB->begin(), DL, TII.get(CDM::PHI), Dst.getReg())
       .addReg(TrueVal.getReg())
       .addMBB(HeadMBB)
       .addReg(FalseVal.getReg())
