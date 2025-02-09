@@ -19,10 +19,7 @@ public:
                     MachineBasicBlock &MBB) const override;
   void emitEpilogue(MachineFunction &MF,
                     MachineBasicBlock &MBB) const override;
-  bool hasFP(const MachineFunction &MF) const override {
-    // TODO: stub
-    return false;
-  }
+  bool hasFP(const MachineFunction &MF) const override;
 
   // Eliminate ADJCALLSTACKDOWN, ADJCALLSTACKUP pseudo instructions
   MachineBasicBlock::iterator

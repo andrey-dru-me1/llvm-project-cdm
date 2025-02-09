@@ -19,6 +19,17 @@
 #include "llvm/Target/TargetOptions.h"
 
 namespace llvm {
+
+//- Must have, hasFP() is pure virtual of parent
+// hasFP - Return true if the specified function should have a dedicated frame
+// pointer register.  This is true if the function has variable sized allocas or
+// if frame pointer elimination is disabled.
+bool CDMFrameLowering::hasFP(const MachineFunction &MF) const {
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+      MFI.hasVarSizedObjects() || MFI.isFrameAddressTaken();
+}
+
 void CDMFrameLowering::emitPrologue(MachineFunction &MF,
                                     MachineBasicBlock &MBB) const {
   MachineFrameInfo &MFI    = MF.getFrameInfo();
@@ -41,13 +52,12 @@ void CDMFrameLowering::emitPrologue(MachineFunction &MF,
   // No need to allocate space on the stack.
   if (StackSize == 0 && !MFI.adjustsStack()) return;
 
-  BuildMI(MBB, MBBI, DL, TII.get(CDM::PUSH)).addReg(CDM::FP);
-  BuildMI(MBB, MBBI, DL, TII.get(CDM::LDSP)).addReg(CDM::FP);
-  TII.adjustStackPtr(-StackSize, MBB, MBBI);
-
-  // BuildMI(MBB, MBBI, DL, TII.get(CDM::PUSH)).addReg(CDM::FP);
-  // BuildMI(MBB, MBBI, DL, TII.get(CDM::LDSP)).addReg(CDM::FP);
-  // TII.adjustStackPtr(-StackSize, MBB, MBBI);
+  MachineModuleInfo &MMI = MF.getMMI();
+  if (hasFP(MF)) {
+    BuildMI(MBB, MBBI, DL, TII.get(CDM::PUSH)).addReg(CDM::FP);
+    BuildMI(MBB, MBBI, DL, TII.get(CDM::LDSP)).addReg(CDM::FP);
+    TII.adjustStackPtr(-StackSize, MBB, MBBI);
+  }
 
   // Something for debugging from cpu0, idk
 //  MachineModuleInfo &MMI = MF.getMMI();

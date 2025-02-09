@@ -124,5 +124,7 @@ void CDMAsmTargetStreamer::changeSection(const MCSection *CurSection,
                                          const MCExpr *SubSection,
                                          raw_ostream &OS) {
   // This is a stub. We don't have sections in cdm
+  // Section->
+  // OS << llvm::formatv("rsect[{0}] ", Section->getName()/*Without first dot*/);
   OS << llvm::formatv("### SECTION: {0}\n", Section->getName());
 }
